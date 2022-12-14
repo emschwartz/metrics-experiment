@@ -12,10 +12,6 @@ use std::time::{Instant, SystemTime};
 use tracing::{debug, error, event, info, instrument, span, trace, Event, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-const METRIC_BASE: &str = "http_requests";
-const DURATION_METRIC: &str = formatcp!("{METRIC_BASE}_duration_seconds");
-const TOTAL_METRIC: &str = formatcp!("{METRIC_BASE}_total");
-
 #[tokio::main]
 async fn main() {
     // Prepare tracing.
@@ -36,8 +32,8 @@ async fn main() {
     tokio::spawn(exporter);
 
     let app = Router::new()
-        .route("/", get(root))
-        .route("/random", get(random));
+        .route("/", get(handlers::root))
+        .route("/random", get(handlers::random));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     Server::bind(&addr)
@@ -46,24 +42,44 @@ async fn main() {
         .unwrap();
 }
 
-async fn root() -> &'static str {
-    let start = Instant::now();
-    histogram!(DURATION_METRIC, start.elapsed().as_secs_f64(), "handler" => "root");
-    increment_counter!(TOTAL_METRIC, "handler" => "root", "result" => "ok");
-    "Hello world!"
-}
+mod handlers {
+    use super::*;
 
-async fn random() -> Result<String, StatusCode> {
-    let start = Instant::now();
-    let r: f64 = rand::random::<f64>();
+    const METRIC_BASE: &str = str_replace!(module_path!(), "::", "_");
+    const DURATION_METRIC: &str = formatcp!("{METRIC_BASE}_duration_seconds");
+    const TOTAL_METRIC: &str = formatcp!("{METRIC_BASE}_total");
 
-    histogram!(DURATION_METRIC, start.elapsed().as_secs_f64(), "handler" => "random");
-    if r < 0.3 {
-        increment_counter!(TOTAL_METRIC, "handler" => "random", "result" => "err");
-        Err(StatusCode::INTERNAL_SERVER_ERROR)
-    } else {
-        increment_counter!(TOTAL_METRIC, "handler" => "random", "result" => "ok");
-        Ok(format!("{}", r))
+    #[instrument]
+    pub async fn root() -> &'static str {
+        let start = Instant::now();
+
+        let result = "Hello world!";
+
+        histogram!(DURATION_METRIC, start.elapsed().as_secs_f64(), "handler" => "root");
+        increment_counter!(TOTAL_METRIC, "handler" => "root", "result" => "ok");
+
+        result
+    }
+
+    #[instrument(err)]
+    pub async fn random() -> Result<String, StatusCode> {
+        let start = Instant::now();
+
+        let r: f64 = rand::random::<f64>();
+        let result = if r < 0.3 {
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        } else {
+            Ok(format!("{}", r))
+        };
+
+        histogram!(DURATION_METRIC, start.elapsed().as_secs_f64(), "handler" => "random");
+        if result.is_ok() {
+            increment_counter!(TOTAL_METRIC, "handler" => "random", "result" => "ok");
+        } else {
+            increment_counter!(TOTAL_METRIC, "handler" => "random", "result" => "err");
+        }
+
+        result
     }
 }
 
