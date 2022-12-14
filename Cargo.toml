@@ -7,13 +7,14 @@ edition = "2021"
 
 [dependencies]
 axum = "*"
+hyper = "*"
 tokio = { version = "*", features = ["full"] }
 const_format = { version = "*", features = ["rust_1_51"] }
 metrics = "*"
-metrics-exporter-prometheus = "*"
+metrics-exporter-prometheus = { version = "*", features = ["http-listener"] }
 metrics-tracing-context = "*"
 metrics-util = "*"
 rand = "*"
-# tracing = "*"
-tracing = { path = "../tracing/tracing" }
+tracing = "*"
+# tracing = { path = "../tracing/tracing" }
 tracing-subscriber = { version = "*", features = ["env-filter"] }

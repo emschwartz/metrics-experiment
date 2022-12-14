@@ -1,13 +1,23 @@
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::get;
+use axum::{Router, Server};
 use const_format::{formatcp, str_replace};
 use metrics::{decrement_gauge, histogram, increment_counter, increment_gauge};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer;
+use std::net::SocketAddr;
 use std::time::{Instant, SystemTime};
 use tracing::{debug, error, event, info, instrument, span, trace, Event, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-fn main() {
+const METRIC_BASE: &str = "http_requests";
+const DURATION_METRIC: &str = formatcp!("{METRIC_BASE}_duration_seconds");
+const TOTAL_METRIC: &str = formatcp!("{METRIC_BASE}_total");
+
+#[tokio::main]
+async fn main() {
     // Prepare tracing.
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -16,13 +26,44 @@ fn main() {
         .init();
 
     // Prepare metrics.
-    let recorder = PrometheusBuilder::new().build_recorder();
+    let (recorder, exporter) = PrometheusBuilder::new()
+        .with_http_listener(([127, 0, 0, 1], 9000))
+        .build()
+        .unwrap();
     let recorder = TracingContextLayer::all().layer(recorder);
     metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
-    println!("Hello, world!");
 
-    for i in 0..10 {
-        create_notebook(i / 3, i, vec![0; i as usize + 1]).ok();
+    tokio::spawn(exporter);
+
+    let app = Router::new()
+        .route("/", get(root))
+        .route("/random", get(random));
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+
+async fn root() -> &'static str {
+    let start = Instant::now();
+    histogram!(DURATION_METRIC, start.elapsed().as_secs_f64(), "handler" => "root");
+    increment_counter!(TOTAL_METRIC, "handler" => "root", "result" => "ok");
+    "Hello world!"
+}
+
+async fn random() -> Result<String, StatusCode> {
+    let start = Instant::now();
+    let r: f64 = rand::random::<f64>();
+
+    histogram!(DURATION_METRIC, start.elapsed().as_secs_f64(), "handler" => "random");
+    if r < 0.3 {
+        increment_counter!(TOTAL_METRIC, "handler" => "random", "result" => "err");
+        Err(StatusCode::INTERNAL_SERVER_ERROR)
+    } else {
+        increment_counter!(TOTAL_METRIC, "handler" => "random", "result" => "ok");
+        Ok(format!("{}", r))
     }
 }
 
