@@ -1,0 +1,19 @@
+[package]
+name = "metrics-experiment"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = "*"
+tokio = { version = "*", features = ["full"] }
+const_format = { version = "*", features = ["rust_1_51"] }
+metrics = "*"
+metrics-exporter-prometheus = "*"
+metrics-tracing-context = "*"
+metrics-util = "*"
+rand = "*"
+# tracing = "*"
+tracing = { path = "../tracing/tracing" }
+tracing-subscriber = { version = "*", features = ["env-filter"] }
